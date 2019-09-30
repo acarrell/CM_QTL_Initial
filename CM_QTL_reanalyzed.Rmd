@@ -1,0 +1,162 @@
+---
+title: "Data exploration to detect phenotypic variation"
+date: "7/24/19"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    fig_caption: yes
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+
+library(captioner)
+library(knitr)
+fig_nums <- captioner(prefix = "Fig.")
+fig.1_cap <- fig_nums(name = "fig_1", 
+                        caption = "distribution of percent growth and growth rates")
+fig.2_cap <- fig_nums(name = "fig_2", 
+                        caption = "distribution of the change in maximum quantum yield")
+fig.3_cap <- fig_nums(name = "fig_3", 
+                        caption = "heatmap of maximum quantum yield with the z-score calculated across genotypes")
+fig.4_cap <- fig_nums(name = "fig_4", 
+                        caption = "heatmap of maximum quantum yield with the z-score calculated across chamber and microbiome treatment")
+fig.5_cap <- fig_nums(name = "fig_5", 
+                        caption = "heatmap of percent change of maximum quantum yield with the z-score calculated across genotype")
+fig.6_cap <- fig_nums(name = "fig_6", 
+                        caption = "heatmap of percent change of maximum quantum yield with the z-score calculated across chamber and microbiome treatment")
+
+```
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+
+
+FluorCam images from the previous condition microbiome QTL were reanalyzed with PSI software to determine if we can i) detect phenotypic variation and ii) if we can use the data to select genotypes at the extreme of phenotypic response.
+
+#Growth data from FluorCam
+
+```{r, echo=FALSE, warning=FALSE, fig.cap = fig.1_cap}
+library(ggplot2)
+library(tidyverse)
+datPhenRaw<-read.delim("CM_pop_FCam.txt")
+datPhenGrowth<- datPhenRaw %>%
+  select(Samples,timepoint, genotypeID, chamber, microbiome, size.mm2) %>%
+  spread(timepoint, size.mm2)%>%
+  drop_na() #remove genotypes that have NA for any timepoint
+
+datPhenGrowth$chamber<-as.character(datPhenGrowth$chamber) #Changing chamber from integer to character class
+datPhenGrowth$percent.growth<- ((datPhenGrowth$week3-datPhenGrowth$initial)/datPhenGrowth$initial)*100
+datPhenGrowth$growth.rate<-(datPhenGrowth$week3-datPhenGrowth$initial)/21
+datPhenGrowth$growth.rate[datPhenGrowth$growth.rate < 0] <- 0
+
+par(mfrow=c(1,3))
+qplot(datPhenGrowth$growth.rate, geom ="histogram") ###histrogram of growth rate
+qplot(datPhenGrowth$percent.growth, geom ="histogram") ###histogram of percent growth 
+
+```
+
+
+PSI software was not able to detect growth in a large portion of genotypes. I would not recommend using FluorCam images as sole phenotyping. *Scanner is likely more accurate
+
+#Fluorescence data from FluorCam
+```{r, echo=FALSE, fig.cap = fig.2_cap}
+
+#################Change in QYmax added####################
+datPhenRaw<-read.delim("CM_pop_FCam.txt")
+datPhen<- datPhenRaw %>%
+  select(Samples,timepoint, genotypeID, chamber, microbiome, QY_max) %>%
+  spread(timepoint, QY_max)%>%
+  drop_na()
+datPhen$chamber<-as.character(datPhen$chamber) #Changing chamber from integer to character class
+datPhen$deltaQY.max<- (datPhen$week3-datPhen$initial)
+datPhen$percentDeltaQY.max<- ((datPhen$week3-datPhen$initial)/datPhen$initial)*100
+datPhen_united<- unite(datPhen, "chamber_microbiome", c("chamber","microbiome"))
+
+
+
+##############Histrogram of delta QyMax#########################
+
+ggplot(datPhen) + 
+  geom_histogram(aes(x = deltaQY.max, y = (..density..)), 
+                 bins = 11, fill = "gray", colour = "black") +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(datPhen$deltaQY.max),
+                            sd = sd(datPhen$deltaQY.max)), 
+                colour = "salmon", size = 1.25) +
+  labs(title="Distribution of Delta Qy_Max", 
+       x="Delta Qy_Max",
+       y="Density")
+
+
+```
+
+
+Maximum quantum yield data follow a normal distribution.
+
+#Heatmap analysis of phenotypes calculate from maximum quantum yield
+```{r, echo=FALSE, fig.cap = fig.3_cap}
+
+qyMax_heatmap_genotype<- datPhen_united %>%
+  group_by(genotypeID) %>%
+  mutate(z_score=scale(deltaQY.max))%>%
+  ggplot(mapping = aes( x=chamber_microbiome,
+                        y=genotypeID, 
+                        fill=z_score))+
+  geom_tile()+
+  scale_fill_gradient2(name=NULL,low="blue",mid='white',high="red") +
+  theme(axis.text.y = element_text(size=rel(0.35)))
+
+qyMax_heatmap_genotype
+```
+
+```{r, echo=FALSE, fig.cap = fig.4_cap}
+
+qyMax_heatmap_treatment<- datPhen_united %>%
+  group_by(chamber_microbiome) %>%
+  mutate(z_score=scale(deltaQY.max))%>%
+  ggplot(mapping = aes( x=chamber_microbiome,
+                        y=genotypeID, 
+                        fill=z_score))+
+  geom_tile()+
+  scale_fill_gradient2(name=NULL,low="blue",mid='white',high="red") +
+  theme(axis.text.y = element_text(size=rel(0.35)))
+
+qyMax_heatmap_treatment
+```
+20 genotypes will be selected for the extremes. I propose to focus on genotypes that have high z-scores for +9C conditioned microbiomes in the +9C chamber but low values in the other categories. 
+
+```{r, echo=FALSE, fig.cap = fig.5_cap}
+
+percent.qyMax_heatmap_treatment<- datPhen_united %>%
+  group_by(genotypeID) %>%
+  mutate(z_score=scale(percentDeltaQY.max))%>%
+  ggplot(mapping = aes( x=chamber_microbiome,
+                        y=genotypeID, 
+                        fill=z_score))+
+  geom_tile()+
+  scale_fill_gradient2(name=NULL,low="blue",mid='white',high="red") +
+  theme(axis.text.y = element_text(size=rel(0.35)))
+
+percent.qyMax_heatmap_treatment
+```
+```{r, echo=FALSE, fig.cap = fig.6_cap}
+
+percent.qyMax_heatmap_treatment<- datPhen_united %>%
+  group_by(chamber_microbiome) %>%
+  mutate(z_score=scale(percentDeltaQY.max))%>%
+  ggplot(mapping = aes( x=chamber_microbiome,
+                        y=genotypeID, 
+                        fill=z_score))+
+  geom_tile()+
+  scale_fill_gradient2(name=NULL,low="blue",mid='white',high="red") +
+  theme(axis.text.y = element_text(size=rel(0.35)))
+
+percent.qyMax_heatmap_treatment
+```
